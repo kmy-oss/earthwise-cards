@@ -155,6 +155,15 @@
   .iconbtn:active{background:#fff;}
   .privacy-inline{font-family:'Space Mono',monospace;font-size:10.5px;letter-spacing:.03em;
     color:var(--muted);margin-top:7px;}
+  .install-bar{display:none;align-items:center;justify-content:space-between;gap:12px;
+    padding:11px 13px 11px 15px;margin:0 0 18px;border:1px solid var(--line);border-radius:14px;background:#fff;}
+  .install-bar.show{display:flex;}
+  .install-bar .it{font-size:12.5px;color:var(--muted);line-height:1.4;}
+  .install-btn{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;
+    background:var(--ink);color:var(--paper);font-weight:600;font-size:13.5px;padding:9px 15px;border-radius:10px;}
+  .install-btn svg{display:block;}
+  .isteps{font-size:14px;color:var(--ink);line-height:1.9;margin:-6px 0 18px;}
+  .isteps strong{font-weight:600;}
   .tnote{font-size:12.5px;color:var(--muted);margin:-6px 0 16px;line-height:1.5;}
   .row{width:100%;display:flex;align-items:center;gap:14px;padding:15px;border:1px solid var(--line);
     border-radius:14px;margin-bottom:10px;text-align:left;}
@@ -240,6 +249,22 @@
     </button>
   </header>
 
+  <div id="installBar" class="install-bar">
+    <span class="it">ホーム画面に追加して、アプリのように使えます</span>
+    <button id="installBtn" class="install-btn" aria-label="インストール">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+      インストール
+    </button>
+  </div>
+
+  <div class="scrim" id="iscrim"></div>
+  <div class="sheet" id="isheet" role="dialog" aria-modal="true" aria-labelledby="iTitle">
+    <div class="grab"></div>
+    <h3 id="iTitle">ホーム画面に追加</h3>
+    <p class="isteps" id="installSteps"></p>
+    <div class="actions"><button class="btn-primary" id="iClose">閉じる</button></div>
+  </div>
+
   <div class="search" id="searchWrap">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
     <input id="search" type="search" placeholder="カードを検索" aria-label="カードを検索" />
@@ -248,7 +273,7 @@
   <div id="content"></div>
 
   <div class="foot">
-    <div class="by">Built by EarthWISE · v1.01</div>
+    <div class="by">Built by EarthWISE · v1.03</div>
   </div>
 </div>
 
@@ -828,6 +853,26 @@ function scanFormats(){
   const F=window.Html5QrcodeSupportedFormats;
   return F ? [F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128,F.CODE_39,F.ITF,F.CODABAR,F.QR_CODE] : undefined;
 }
+function scanErrMsg(e){
+  const n=((e && (e.name||e.message))||'').toString();
+  if(/NotAllowed|Security|Permission/i.test(n)) return 'カメラの使用が許可されていません。アドレスバーの🔒→サイトの設定→カメラを「許可」にして再読み込みしてください。番号は手入力もできます。';
+  if(/NotFound|DevicesNotFound|Overconstrained/i.test(n)) return '使えるカメラが見つかりませんでした。Chromeなど別のブラウザでお試しください。番号は手入力もできます。';
+  if(/NotReadable|TrackStart|InUse/i.test(n)) return 'カメラが他のアプリで使用中の可能性があります。カメラ系アプリを閉じて再度お試しください。番号は手入力もできます。';
+  return 'カメラを起動できませんでした（'+(n||'unknown')+'）。番号は手入力もできます。';
+}
+async function startWithCamera(config){
+  try{
+    // 1) prefer the rear camera (ideal => won't over-constrain)
+    await h5q.start({ facingMode:{ ideal:'environment' } }, config, onScanSuccess, ()=>{});
+    return;
+  }catch(e1){
+    // 2) enumerate cameras and pick a back one (helps multi-camera / foldable devices)
+    const cams = await Html5Qrcode.getCameras(); // also prompts for permission
+    if(!cams || !cams.length) throw e1;
+    const back = cams.find(c=>/back|rear|environment|背面/i.test(c.label||'')) || cams[cams.length-1];
+    await h5q.start(back.id, config, onScanSuccess, ()=>{});
+  }
+}
 async function openScan(){
   scView.classList.add('open');
   scMsg.textContent='バーコードを枠に合わせてください（10〜20cm離すとピントが合います）';
@@ -835,10 +880,9 @@ async function openScan(){
   h5q=new Html5Qrcode('scReader',{ formatsToSupport:scanFormats(), verbose:false });
   const config={ fps:10, qrbox:(w,h)=>{ const s=Math.floor(Math.min(w,h)*0.8); return {width:s,height:Math.max(90,Math.floor(s*0.55))}; } };
   try{
-    // minimal, widely-compatible start (ideal => won't over-constrain)
-    await h5q.start({ facingMode:{ ideal:'environment' } }, config, onScanSuccess, ()=>{});
+    await startWithCamera(config);
   }catch(e){
-    scMsg.textContent='カメラを起動できませんでした。ブラウザのカメラ許可を確認してください。番号は手入力もできます。';
+    scMsg.textContent=scanErrMsg(e);
     try{ if(h5q) await h5q.clear(); }catch(_){}
     h5q=null; return;
   }
@@ -1043,6 +1087,47 @@ searchEl.addEventListener('input',render);
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=> navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 }
+/* install to home screen */
+(function(){
+  const bar=document.getElementById('installBar');
+  const btn=document.getElementById('installBtn');
+  const iscrim=document.getElementById('iscrim'), isheet=document.getElementById('isheet');
+  const steps=document.getElementById('installSteps');
+  if(!bar||!btn) return;
+  let deferred=null;
+  const ua=navigator.userAgent||'';
+  const isIOS=/iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints>1);
+  const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone===true;
+
+  function showHint(){
+    steps.innerHTML = isIOS
+      ? '画面下の<strong>共有ボタン</strong>（□に↑）をタップ<br>→「<strong>ホーム画面に追加</strong>」を選択'
+      : 'ブラウザのメニュー（<strong>⋮</strong>）を開く<br>→「<strong>アプリをインストール</strong>」または「<strong>ホーム画面に追加</strong>」を選択';
+    iscrim.classList.add('open'); isheet.classList.add('open');
+  }
+  function hideHint(){ iscrim.classList.remove('open'); isheet.classList.remove('open'); }
+  iscrim.addEventListener('click', hideHint);
+  document.getElementById('iClose').addEventListener('click', hideHint);
+
+  window.addEventListener('beforeinstallprompt', (e)=>{
+    e.preventDefault(); deferred=e;
+    if(!standalone) bar.classList.add('show');
+  });
+  window.addEventListener('appinstalled', ()=>{ bar.classList.remove('show'); deferred=null; });
+
+  btn.addEventListener('click', async ()=>{
+    if(deferred){
+      deferred.prompt();
+      try{ const {outcome}=await deferred.userChoice; if(outcome==='accepted') bar.classList.remove('show'); }catch(e){}
+      deferred=null;
+    } else {
+      showHint(); // iOS, or browsers without a native prompt
+    }
+  });
+
+  // show the button on the initial screen whenever we're not already installed
+  if(!standalone) bar.classList.add('show');
+})();
 </script>
 </body>
 </html>
