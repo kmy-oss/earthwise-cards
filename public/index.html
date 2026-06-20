@@ -279,7 +279,7 @@
   <div id="content"></div>
 
   <div class="foot">
-    <div class="by">Built by EarthWISE · v1.13</div>
+    <div class="by">Built by EarthWISE · v1.14</div>
   </div>
 </div>
 
@@ -376,6 +376,7 @@
     <span class="ri"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A1A18" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><line x1="4" y1="12" x2="20" y2="12"/></svg></span>
     <span><span class="rt">読み込む</span><span class="rs">QR・テキスト・ファイルから取り込みます</span></span>
   </button>
+  <button class="btn-del" id="resetBtn">データを初期化</button>
 </div>
 
 <!-- Export overlay -->
@@ -690,6 +691,16 @@ function openTransfer(){ tscrim.classList.add('open'); tsheet.classList.add('ope
 function closeTransfer(){ tscrim.classList.remove('open'); tsheet.classList.remove('open'); }
 document.getElementById('transferBtn').addEventListener('click',openTransfer);
 tscrim.addEventListener('click',closeTransfer);
+
+/* reset to initial sample state */
+async function resetData(){
+  if(!confirm('すべてのカード・クーポンを削除し、初期状態（サンプル）に戻します。よろしいですか？')) return;
+  cards = seedItems();
+  await save();
+  render();
+  closeTransfer();
+}
+document.getElementById('resetBtn').addEventListener('click', resetData);
 
 /* encode / decode (compact keys: n=name, c=code, f=format, k=color, t=type, e=expiry) */
 function buildPayload(){
@@ -1066,21 +1077,26 @@ document.addEventListener('keydown',e=>{
 });
 searchEl.addEventListener('input',render);
 
+/* ---------- sample seed (used on first run and on reset) ---------- */
+function seedItems(){
+  const future = d => { const t=new Date(); t.setDate(t.getDate()+d); return t.toISOString().slice(0,10); };
+  return [
+    {id:uid(),type:'card',name:'ニコニコドー',code:'4912345678904',format:'EAN13',color:'#3A5A55',expiry:''},
+    {id:uid(),type:'card',name:'コトブキヤ',code:'KTB-2207-551',format:'CODE128',color:'#6B4E3D',expiry:''},
+    {id:uid(),type:'card',name:'さくら薬局',code:'987654321099',format:'CODE128',color:'#7A3B3B',expiry:''},
+    {id:uid(),type:'card',name:'モントレ',code:'NKGW-0427-882',format:'CODE128',color:'#3E5170',expiry:''},
+    {id:uid(),type:'coupon',name:'ニコニコドー 10%OFF',code:'CPN-9F2K-10',format:'QR',color:'#5A5470',expiry:future(21)},
+    {id:uid(),type:'coupon',name:'モントレ 1杯無料',code:'FREE-COFFEE-77',format:'CODE128',color:'#3A5A55',expiry:future(40)},
+  ];
+}
+
 /* ---------- boot ---------- */
 (async()=>{
   cards = await load();
   cards.forEach(c=>{ if(!c.type) c.type='card'; if(c.expiry===undefined) c.expiry=''; });
   const inited = await readFlag(KEY+":init");
   if(cards.length===0 && !inited){
-    const future = d => { const t=new Date(); t.setDate(t.getDate()+d); return t.toISOString().slice(0,10); };
-    cards = [
-      {id:uid(),type:'card',name:'ニコニコドー',code:'4912345678904',format:'EAN13',color:'#3A5A55',expiry:''},
-      {id:uid(),type:'card',name:'コトブキヤ',code:'KTB-2207-551',format:'CODE128',color:'#6B4E3D',expiry:''},
-      {id:uid(),type:'card',name:'さくら薬局',code:'987654321099',format:'CODE128',color:'#7A3B3B',expiry:''},
-      {id:uid(),type:'card',name:'モントレ',code:'NKGW-0427-882',format:'CODE128',color:'#3E5170',expiry:''},
-      {id:uid(),type:'coupon',name:'ニコニコドー 10%OFF',code:'CPN-9F2K-10',format:'QR',color:'#5A5470',expiry:future(21)},
-      {id:uid(),type:'coupon',name:'モントレ 1杯無料',code:'FREE-COFFEE-77',format:'CODE128',color:'#3A5A55',expiry:future(40)},
-    ];
+    cards = seedItems();
     await save();
   }
   await writeFlag(KEY+":init");
