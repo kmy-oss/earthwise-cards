@@ -273,7 +273,7 @@
   <div id="content"></div>
 
   <div class="foot">
-    <div class="by">Built by EarthWISE · v1.03</div>
+    <div class="by">Built by EarthWISE · v1.04</div>
   </div>
 </div>
 
@@ -854,20 +854,25 @@ function scanFormats(){
   return F ? [F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128,F.CODE_39,F.ITF,F.CODABAR,F.QR_CODE] : undefined;
 }
 function scanErrMsg(e){
-  const n=((e && (e.name||e.message))||'').toString();
-  if(/NotAllowed|Security|Permission/i.test(n)) return 'カメラの使用が許可されていません。アドレスバーの🔒→サイトの設定→カメラを「許可」にして再読み込みしてください。番号は手入力もできます。';
-  if(/NotFound|DevicesNotFound|Overconstrained/i.test(n)) return '使えるカメラが見つかりませんでした。Chromeなど別のブラウザでお試しください。番号は手入力もできます。';
-  if(/NotReadable|TrackStart|InUse/i.test(n)) return 'カメラが他のアプリで使用中の可能性があります。カメラ系アプリを閉じて再度お試しください。番号は手入力もできます。';
-  return 'カメラを起動できませんでした（'+(n||'unknown')+'）。番号は手入力もできます。';
+  let n='';
+  if(typeof e==='string') n=e;
+  else if(e && (e.name||e.message)) n=((e.name||'')+' '+(e.message||'')).trim();
+  else { try{ n=JSON.stringify(e); }catch(_){ n=String(e); } }
+  if(/NotAllowed|Permission|dismiss|denied|Security/i.test(n)) return 'カメラの使用が許可されていません。アドレスバーの🔒→サイトの設定→カメラを「許可」にして再読み込みしてください。番号は手入力もできます。';
+  if(/NotFound|DevicesNotFound|no ?camera|Overconstrained|Constraint/i.test(n)) return '使えるカメラが見つかりませんでした。Chromeなど別のブラウザでお試しください。番号は手入力もできます。';
+  if(/NotReadable|TrackStart|in ?use|AbortError|Could not start/i.test(n)) return 'カメラが他のアプリで使用中の可能性があります。カメラ系アプリを閉じて再度お試しください。番号は手入力もできます。';
+  return 'カメラを起動できませんでした（'+(n? n.slice(0,140):'不明')+'）。番号は手入力もできます。';
 }
 async function startWithCamera(config){
   try{
-    // 1) prefer the rear camera (ideal => won't over-constrain)
-    await h5q.start({ facingMode:{ ideal:'environment' } }, config, onScanSuccess, ()=>{});
+    // 1) plain rear-camera request (known-good across devices)
+    await h5q.start({ facingMode:'environment' }, config, onScanSuccess, ()=>{});
     return;
   }catch(e1){
-    // 2) enumerate cameras and pick a back one (helps multi-camera / foldable devices)
-    const cams = await Html5Qrcode.getCameras(); // also prompts for permission
+    // 2) enumerate cameras (also prompts permission) and pick a back lens — helps foldables
+    let cams;
+    try{ cams = await Html5Qrcode.getCameras(); }
+    catch(e2){ throw e2; }
     if(!cams || !cams.length) throw e1;
     const back = cams.find(c=>/back|rear|environment|背面/i.test(c.label||'')) || cams[cams.length-1];
     await h5q.start(back.id, config, onScanSuccess, ()=>{});
