@@ -196,9 +196,12 @@
   .scan-btn{flex:0 0 auto;width:48px;border:1px solid var(--line);border-radius:11px;background:#fff;
     display:flex;align-items:center;justify-content:center;}
   .scan-btn:active{background:#f3f1ec;}
-  #scReader{width:100%;max-width:320px;border-radius:18px;overflow:hidden;background:#0d0d0c;}
+  #scReader{position:relative;width:100%;max-width:360px;border-radius:18px;overflow:hidden;background:#0d0d0c;}
   #scReader video{width:100%!important;height:auto!important;display:block;}
   #scReader img{display:none;}
+  .focus-ring{position:absolute;width:64px;height:64px;margin:-32px 0 0 -32px;border:2px solid #fff;
+    border-radius:50%;pointer-events:none;box-shadow:0 0 0 1px rgba(0,0,0,.3);animation:focusPulse .65s ease-out forwards;}
+  @keyframes focusPulse{0%{transform:scale(1.35);opacity:0}25%{opacity:1}100%{transform:scale(1);opacity:0}}
   .ocr-trigger{width:100%;padding:11px;border:1px dashed var(--line);border-radius:11px;background:#fff;
     color:var(--muted);font-size:13px;font-weight:600;margin-bottom:16px;
     display:flex;align-items:center;justify-content:center;gap:8px;}
@@ -245,7 +248,7 @@
   <div id="content"></div>
 
   <div class="foot">
-    <div class="by">Built by EarthWISE</div>
+    <div class="by">Built by EarthWISE · v1.00</div>
   </div>
 </div>
 
@@ -391,7 +394,7 @@
   </div>
   <div class="body" style="justify-content:flex-start;padding-top:6px;gap:16px;">
     <div id="scReader"></div>
-    <div id="scMsg" class="dfmt">バーコードを枠に合わせてください</div>
+    <div id="scMsg" class="dfmt">バーコードを枠に合わせてください（10〜20cm離すとピントが合います）</div>
   </div>
 </div>
 
@@ -818,7 +821,8 @@ async function handleImport(text){
 
 /* ---------- scan to add (camera barcode → fill code) ---------- */
 const scView=document.getElementById('scanView'), scMsg=document.getElementById('scMsg');
-let h5q=null;
+const scReaderEl=document.getElementById('scReader');
+let h5q=null, scanTrack=null;
 
 function scanFormats(){
   const F=window.Html5QrcodeSupportedFormats;
@@ -826,20 +830,62 @@ function scanFormats(){
 }
 async function openScan(){
   scView.classList.add('open');
-  scMsg.textContent='バーコードを枠に合わせてください';
+  scMsg.textContent='バーコードを枠に合わせてください（10〜20cm離すとピントが合います）';
   if(!window.Html5Qrcode){ scMsg.textContent='スキャン機能を読み込めませんでした。番号は手入力できます。'; return; }
   try{
     h5q=new Html5Qrcode('scReader',{ formatsToSupport:scanFormats(), verbose:false });
     await h5q.start(
-      {facingMode:'environment'},
-      {fps:10, qrbox:(w,h)=>{ const s=Math.floor(Math.min(w,h)*0.8); return {width:s,height:Math.max(90,Math.floor(s*0.55))}; }},
+      { facingMode:'environment', width:{ideal:1920}, height:{ideal:1080}, advanced:[{focusMode:'continuous'}] },
+      { fps:10, qrbox:(w,h)=>{ const s=Math.floor(Math.min(w,h)*0.8); return {width:s,height:Math.max(90,Math.floor(s*0.55))}; } },
       onScanSuccess, ()=>{}
     );
+    try{ await h5q.applyVideoConstraints({ advanced:[{focusMode:'continuous'}] }); }catch(e){}
+    // grab the live track for tap-to-focus
+    const v=scReaderEl.querySelector('video');
+    scanTrack = (v && v.srcObject && v.srcObject.getVideoTracks) ? v.srcObject.getVideoTracks()[0] : null;
+    if(scanTrack){
+      try{
+        const caps = scanTrack.getCapabilities ? scanTrack.getCapabilities() : {};
+        if(!(caps.focusMode && caps.focusMode.includes && caps.focusMode.includes('single-shot')) &&
+           !caps.pointsOfInterest){
+          scMsg.textContent='バーコードを枠に合わせてください（この端末はタップフォーカス非対応。10〜20cm離すと合います）';
+        } else {
+          scMsg.textContent='バーコードを枠に合わせ、ぼやけたら画面をタップしてピント合わせ';
+        }
+      }catch(e){}
+    }
   }catch(e){ scMsg.textContent='カメラを起動できませんでした。番号は手入力できます。'; }
 }
 async function closeScan(){
   scView.classList.remove('open');
+  scanTrack=null;
   if(h5q){ try{ await h5q.stop(); }catch(e){} try{ await h5q.clear(); }catch(e){} h5q=null; }
+}
+
+/* tap-to-focus (Android-supported devices; best effort) */
+scReaderEl.addEventListener('click', async (ev)=>{
+  if(!scanTrack || !scanTrack.applyConstraints) return;
+  const rect=scReaderEl.getBoundingClientRect();
+  const x=Math.min(1,Math.max(0,(ev.clientX-rect.left)/rect.width));
+  const y=Math.min(1,Math.max(0,(ev.clientY-rect.top)/rect.height));
+  showFocusRing(ev.clientX-rect.left, ev.clientY-rect.top);
+  try{
+    const caps=scanTrack.getCapabilities ? scanTrack.getCapabilities() : {};
+    const adv=[];
+    if(caps.pointsOfInterest) adv.push({ pointsOfInterest:[{x,y}] });
+    if(caps.focusMode && caps.focusMode.includes && caps.focusMode.includes('single-shot')) adv.push({ focusMode:'single-shot' });
+    if(adv.length){
+      await scanTrack.applyConstraints({ advanced:adv });
+      // resume continuous tracking shortly after
+      setTimeout(()=>{ try{ if(caps.focusMode && caps.focusMode.includes('continuous')) scanTrack.applyConstraints({ advanced:[{focusMode:'continuous'}] }); }catch(e){} }, 2500);
+    }
+  }catch(e){}
+});
+function showFocusRing(x,y){
+  const r=document.createElement('div');
+  r.className='focus-ring'; r.style.left=x+'px'; r.style.top=y+'px';
+  scReaderEl.appendChild(r);
+  setTimeout(()=>r.remove(), 650);
 }
 function onScanSuccess(text, result){
   const fmtName = (result && result.result && result.result.format && result.result.format.formatName) || '';
