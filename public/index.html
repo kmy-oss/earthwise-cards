@@ -248,7 +248,7 @@
   <div id="content"></div>
 
   <div class="foot">
-    <div class="by">Built by EarthWISE · v1.01</div>
+    <div class="by">Built by EarthWISE · v1.00</div>
   </div>
 </div>
 
@@ -832,34 +832,29 @@ async function openScan(){
   scView.classList.add('open');
   scMsg.textContent='バーコードを枠に合わせてください（10〜20cm離すとピントが合います）';
   if(!window.Html5Qrcode){ scMsg.textContent='スキャン機能を読み込めませんでした。番号は手入力できます。'; return; }
-  h5q=new Html5Qrcode('scReader',{ formatsToSupport:scanFormats(), verbose:false });
-  const config={ fps:10, qrbox:(w,h)=>{ const s=Math.floor(Math.min(w,h)*0.8); return {width:s,height:Math.max(90,Math.floor(s*0.55))}; } };
   try{
-    // minimal, widely-compatible start (ideal => won't over-constrain)
-    await h5q.start({ facingMode:{ ideal:'environment' } }, config, onScanSuccess, ()=>{});
-  }catch(e){
-    scMsg.textContent='カメラを起動できませんでした。ブラウザのカメラ許可を確認してください。番号は手入力もできます。';
-    try{ if(h5q) await h5q.clear(); }catch(_){}
-    h5q=null; return;
-  }
-  // enhancements are best-effort and must never affect whether the camera starts
-  setupScanTrack();
-}
-function setupScanTrack(){
-  try{
+    h5q=new Html5Qrcode('scReader',{ formatsToSupport:scanFormats(), verbose:false });
+    await h5q.start(
+      { facingMode:'environment', width:{ideal:1920}, height:{ideal:1080}, advanced:[{focusMode:'continuous'}] },
+      { fps:10, qrbox:(w,h)=>{ const s=Math.floor(Math.min(w,h)*0.8); return {width:s,height:Math.max(90,Math.floor(s*0.55))}; } },
+      onScanSuccess, ()=>{}
+    );
+    try{ await h5q.applyVideoConstraints({ advanced:[{focusMode:'continuous'}] }); }catch(e){}
+    // grab the live track for tap-to-focus
     const v=scReaderEl.querySelector('video');
-    scanTrack=(v && v.srcObject && v.srcObject.getVideoTracks) ? v.srcObject.getVideoTracks()[0] : null;
-  }catch(e){ scanTrack=null; }
-  if(!scanTrack) return;
-  // try to upgrade resolution + continuous focus on the live track (ignored if unsupported)
-  try{ scanTrack.applyConstraints({ width:{ideal:1280}, height:{ideal:720}, advanced:[{focusMode:'continuous'}] }); }catch(e){}
-  try{
-    const caps = scanTrack.getCapabilities ? scanTrack.getCapabilities() : {};
-    const tappable = caps.pointsOfInterest || (caps.focusMode && caps.focusMode.includes && caps.focusMode.includes('single-shot'));
-    scMsg.textContent = tappable
-      ? 'バーコードを枠に合わせ、ぼやけたら画面をタップしてピント合わせ'
-      : 'バーコードを枠に合わせてください（10〜20cm離すとピントが合います）';
-  }catch(e){}
+    scanTrack = (v && v.srcObject && v.srcObject.getVideoTracks) ? v.srcObject.getVideoTracks()[0] : null;
+    if(scanTrack){
+      try{
+        const caps = scanTrack.getCapabilities ? scanTrack.getCapabilities() : {};
+        if(!(caps.focusMode && caps.focusMode.includes && caps.focusMode.includes('single-shot')) &&
+           !caps.pointsOfInterest){
+          scMsg.textContent='バーコードを枠に合わせてください（この端末はタップフォーカス非対応。10〜20cm離すと合います）';
+        } else {
+          scMsg.textContent='バーコードを枠に合わせ、ぼやけたら画面をタップしてピント合わせ';
+        }
+      }catch(e){}
+    }
+  }catch(e){ scMsg.textContent='カメラを起動できませんでした。番号は手入力できます。'; }
 }
 async function closeScan(){
   scView.classList.remove('open');
