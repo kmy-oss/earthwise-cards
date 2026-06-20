@@ -1,4 +1,4 @@
-const CACHE = 'ewcards-v2';
+const CACHE = 'ewcards-v3';
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
@@ -16,11 +16,13 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  // Network-first so updates show immediately; fall back to cache when offline.
+  const sameOrigin = new URL(req.url).origin === location.origin;
+  // Bypass the browser HTTP cache for our own files so new deploys show immediately.
+  const opts = sameOrigin ? { cache: 'reload' } : undefined;
   e.respondWith(
-    fetch(req)
+    fetch(req, opts)
       .then((res) => {
-        if (new URL(req.url).origin === location.origin && res && res.ok) {
+        if (sameOrigin && res && res.ok) {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(req, copy));
         }
