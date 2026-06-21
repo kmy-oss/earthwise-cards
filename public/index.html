@@ -296,7 +296,7 @@
   <div id="content"></div>
 
   <div class="foot">
-    <div class="by">Built by EarthWISE · v1.19</div>
+    <div class="by">Built by EarthWISE · v1.20</div>
   </div>
 </div>
 
@@ -328,7 +328,7 @@
   <div class="field">
     <label for="f-code">番号 / コード</label>
     <div class="code-row">
-      <input id="f-code" type="text" data-mono placeholder="バーコードの番号を入力" autocomplete="off" inputmode="text" maxlength="30" />
+      <input id="f-code" type="text" data-mono placeholder="バーコードの番号を入力" autocomplete="off" inputmode="text" maxlength="1000" />
       <button type="button" id="scanBtn" class="scan-btn" aria-label="カメラで読み取る">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A1A18" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h1.6l.9-1.4h7l.9 1.4H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.4"/></svg>
       </button>
@@ -472,7 +472,8 @@ let pickedColor = PALETTE[1];
 let pickedType = 'card';
 const LIMITS = { card:10, coupon:20 };
 const TYPE_LABEL = { card:'カード', coupon:'クーポン' };
-const CODE_MAX = 30; // bytes
+const QR_MAX = 1000, BAR_MAX = 48; // bytes
+const maxForFormat = f => (f==='QR' ? QR_MAX : BAR_MAX);
 const byteLen = s => new TextEncoder().encode(String(s||'')).length;
 const FMT_LABEL = { CODE128:'CODE 128', EAN13:'EAN-13', EAN8:'EAN-8', UPC:'UPC-A', CODE39:'CODE 39', ITF:'ITF', CODABAR:'Codabar', QR:'QR' };
 const JSB_FORMAT = { CODE128:'CODE128', EAN13:'EAN13', EAN8:'EAN8', UPC:'UPC', CODE39:'CODE39', ITF:'ITF', CODABAR:'codabar' };
@@ -594,6 +595,7 @@ function setType(t){
 }
 segCard.addEventListener('click',()=>setType('card'));
 segCoupon.addEventListener('click',()=>setType('coupon'));
+fFmt.addEventListener('change',()=>{ fCode.maxLength = maxForFormat(fFmt.value); });
 
 function openSheet(card){
   editingId = card ? card.id : null;
@@ -602,6 +604,7 @@ function openSheet(card){
   fName.value = card ? card.name : '';
   fCode.value = card ? card.code : '';
   fFmt.value  = card ? card.format : 'CODE128';
+  fCode.maxLength = maxForFormat(fFmt.value);
   fExp.value  = card ? (card.expiry||'') : '';
   pickedColor = card ? card.color : PALETTE[1];
   errEl.textContent='';
@@ -625,8 +628,10 @@ document.getElementById('saveBtn').addEventListener('click',async()=>{
     errEl.textContent = `このコードは「${fmtLabel(format)}」の形式では表示できません。`;
     return;
   }
-  if(byteLen(code) > CODE_MAX){
-    errEl.textContent='コードは30バイト（半角30文字）までにしてください。';
+  if(byteLen(code) > maxForFormat(format)){
+    errEl.textContent = format==='QR'
+      ? 'QRのデータが大きすぎます（約1000バイトまで）。'
+      : 'コードは48バイト（半角48文字）までにしてください。';
     return;
   }
   if(type==='coupon' && isUrlLike(code)){
@@ -855,7 +860,7 @@ async function handleImport(text){
   let urlSkipped=0, longSkipped=0;
   const incoming=arr.map(entryToCard).filter(Boolean).filter(c=>{
     if(c.type==='coupon' && isUrlLike(c.code)){ urlSkipped++; return false; }
-    if(byteLen(c.code) > CODE_MAX){ longSkipped++; return false; }
+    if(byteLen(c.code) > maxForFormat(c.format)){ longSkipped++; return false; }
     return true;
   });
   if(!incoming.length){
@@ -981,11 +986,12 @@ function showFocusRing(x,y){
 function onScanSuccess(text, result){
   const fmtName = (result && result.result && result.result.format && result.result.format.formatName) || '';
   const code=String(text).trim();
-  if(byteLen(code) > CODE_MAX){ scMsg.textContent='このコードは長すぎて登録できません（30バイト超）。'; return; }
   const SCAN_MAP={QR_CODE:'QR',EAN_13:'EAN13',EAN_8:'EAN8',UPC_A:'UPC',UPC_E:'CODE128',CODE_128:'CODE128',CODE_39:'CODE39',ITF:'ITF',CODABAR:'CODABAR'};
   let fmt = SCAN_MAP[fmtName] || 'CODE128';
   if(fmt!=='QR' && !validateCode(code, fmt)) fmt='CODE128';
+  if(byteLen(code) > maxForFormat(fmt)){ scMsg.textContent='このコードは長すぎて登録できません。'; return; }
   fCode.value=code; fFmt.value=fmt;
+  fCode.maxLength = maxForFormat(fmt);
   closeScan();
   if(!fName.value.trim()) setTimeout(()=>fName.focus(),250);
 }
