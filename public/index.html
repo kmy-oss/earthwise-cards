@@ -296,7 +296,7 @@
   <div id="content"></div>
 
   <div class="foot">
-    <div class="by">Built by EarthWISE · v1.17</div>
+    <div class="by">Built by EarthWISE · v1.19</div>
   </div>
 </div>
 
@@ -649,6 +649,9 @@ document.getElementById('saveBtn').addEventListener('click',async()=>{
 
 delBtn.addEventListener('click',async()=>{
   if(!editingId) return;
+  const item = cards.find(x=>x.id===editingId);
+  const nm = item && item.name ? '「'+item.name+'」' : 'この項目';
+  if(!confirm(nm+'を削除しますか？')) return;
   cards = cards.filter(x=>x.id!==editingId);
   await save(); render(); closeSheet();
 });
@@ -1102,6 +1105,7 @@ function seedItems(){
     {id:uid(),type:'card',name:'コトブキヤ',code:'KTB-2207-551',format:'CODE128',color:'#6B4E3D',expiry:''},
     {id:uid(),type:'card',name:'さくら薬局',code:'987654321099',format:'CODE128',color:'#7A3B3B',expiry:''},
     {id:uid(),type:'card',name:'モントレ',code:'NKGW-0427-882',format:'CODE128',color:'#3E5170',expiry:''},
+    {id:uid(),type:'card',name:'青柳書店',code:'AYG-55012-7',format:'CODE128',color:'#5A5470',expiry:''},
     {id:uid(),type:'coupon',name:'ニコニコドー 10%OFF',code:'CPN-9F2K-10',format:'QR',color:'#5A5470',expiry:future(21)},
     {id:uid(),type:'coupon',name:'モントレ 1杯無料',code:'FREE-COFFEE-77',format:'CODE128',color:'#3A5A55',expiry:future(40)},
   ];
