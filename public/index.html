@@ -218,6 +218,23 @@
   .sec-n.full{color:#9A3B3B;}
   .cbot{display:flex;flex-direction:column;gap:2px;}
   .card .exp{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.03em;opacity:.82;}
+  /* expiry status badges */
+  .card .exp.today,.card .exp.tomorrow,.card .exp.expired{
+    display:inline-block;align-self:flex-start;opacity:1;font-family:'Inter',system-ui,sans-serif;
+    font-weight:600;font-size:10.5px;letter-spacing:.02em;padding:2px 8px;border-radius:999px;margin-top:1px;}
+  .card .exp.today,.card .exp.tomorrow{background:#E8A23D;color:#2A1C06;}
+  .card .exp.expired{background:#C0392B;color:#fff;}
+  .card.is-expired{filter:saturate(.55) brightness(.82);}
+  .card.is-expired::before{content:"";position:absolute;inset:0;box-shadow:inset 0 0 0 2px #C0392B;
+    border-radius:var(--r);pointer-events:none;z-index:1;}
+  /* expiry banner */
+  .exbanner{display:flex;align-items:center;gap:10px;margin:0 0 14px;padding:11px 13px;
+    border-radius:14px;background:#FBEEE9;border:1px solid #E6C9C0;}
+  .exbanner .et{flex:1;font-size:12.5px;color:#7A2E22;line-height:1.4;}
+  .exbanner .eb{flex:0 0 auto;background:#1A1A18;color:#FAF9F6;font-weight:600;font-size:12px;
+    padding:7px 12px;border-radius:9px;}
+  .exbanner .ex{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;color:#7A2E22;font-size:16px;}
   .seg{display:flex;gap:6px;background:#fff;border:1px solid var(--line);border-radius:11px;padding:4px;margin-bottom:16px;}
   .seg button{flex:1;padding:9px;border-radius:8px;font-weight:600;font-size:14px;color:var(--muted);}
   .seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper);}
@@ -293,10 +310,11 @@
     <input id="search" type="search" placeholder="カードを検索" aria-label="カードを検索" />
   </div>
 
+  <div id="expiryBanner" class="exbanner" hidden></div>
   <div id="content"></div>
 
   <div class="foot">
-    <div class="by">Built by EarthWISE · v1.20</div>
+    <div class="by">Built by EarthWISE · v1.21</div>
   </div>
 </div>
 
@@ -527,6 +545,7 @@ function render(){
         <h2>まだ登録がありません</h2>
         <p>よく使う会員証やクーポンを追加しておけます。</p>
       </div>`;
+    updateExpiryBanner();
     return;
   }
 
@@ -536,6 +555,7 @@ function render(){
 
   if(q && shown.card.length===0 && shown.coupon.length===0){
     content.innerHTML = `<div class="empty"><h2>該当なし</h2><p>「${escapeHtml(q)}」に一致するものはありません。</p></div>`;
+    updateExpiryBanner();
     return;
   }
 
@@ -554,11 +574,35 @@ function render(){
     shown[type].forEach(c=>grid.appendChild(tile(c)));
     content.appendChild(grid);
   });
+  updateExpiryBanner();
+}
+function daysUntil(expiry){
+  if(!expiry) return null;
+  const p=String(expiry).split('-'); if(p.length!==3) return null;
+  const today=new Date(); today.setHours(0,0,0,0);
+  const d=new Date(+p[0], +p[1]-1, +p[2]); if(isNaN(d)) return null; d.setHours(0,0,0,0);
+  return Math.round((d-today)/86400000);
+}
+function expiryInfo(c){
+  if(c.type!=='coupon' || !c.expiry) return null;
+  const n=daysUntil(c.expiry);
+  if(n===null) return null;
+  if(n<0) return {state:'expired', label:'期限切れ', days:n};
+  if(n===0) return {state:'today', label:'本日まで', days:0};
+  if(n===1) return {state:'tomorrow', label:'明日まで', days:1};
+  return {state:'future', label:'〜'+fmtDate(c.expiry), days:n};
 }
 function tile(c){
   const b=document.createElement('button');
   b.className='card'; b.style.background=c.color;
-  const exp = (c.type==='coupon' && c.expiry) ? `<span class="exp">〜${fmtDate(c.expiry)}</span>` : '';
+  const info=expiryInfo(c);
+  let exp='';
+  if(info){
+    exp = info.state==='future'
+      ? `<span class="exp">${info.label}</span>`
+      : `<span class="exp ${info.state}">${info.label}</span>`;
+    if(info.state==='expired') b.classList.add('is-expired');
+  }
   b.innerHTML=`<div class="nm">${escapeHtml(c.name)}</div><div class="cbot"><span class="fmt">${fmtLabel(c.format)}</span>${exp}</div>`;
   b.addEventListener('click',()=>openDetail(c.id));
   return b;
@@ -566,6 +610,62 @@ function tile(c){
 const fmtLabel = f => FMT_LABEL[f] || f;
 const fmtDate = s => { const p=String(s).split('-'); return p.length===3 ? `${p[0]}/${p[1]}/${p[2]}` : s; };
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+/* ---------- expiry banner + optional local notification ---------- */
+const expiryBanner = document.getElementById('expiryBanner');
+let bannerDismissed = false;
+function expirySummary(){
+  let expired=0, soon=0;
+  cards.forEach(c=>{ const i=expiryInfo(c); if(!i)return;
+    if(i.state==='expired') expired++; else if(i.state==='today'||i.state==='tomorrow') soon++; });
+  return {expired, soon};
+}
+function updateExpiryBanner(){
+  if(!expiryBanner) return;
+  const {expired, soon} = expirySummary();
+  if(bannerDismissed || (expired===0 && soon===0)){ expiryBanner.hidden=true; expiryBanner.innerHTML=''; return; }
+  const parts=[];
+  if(expired) parts.push(`期限切れ ${expired}件`);
+  if(soon) parts.push(`まもなく期限 ${soon}件`);
+  const canAsk = ('Notification' in window) && Notification.permission==='default';
+  expiryBanner.innerHTML =
+    `<span class="et">${parts.join('・')}のクーポンがあります。</span>`+
+    (canAsk?`<button class="eb" id="notifyOn">通知をオン</button>`:'')+
+    `<button class="ex" id="exClose2" aria-label="閉じる">×</button>`;
+  expiryBanner.hidden=false;
+  const close=document.getElementById('exClose2');
+  if(close) close.onclick=()=>{ bannerDismissed=true; updateExpiryBanner(); };
+  const non=document.getElementById('notifyOn');
+  if(non) non.onclick=async()=>{
+    try{
+      const p=await Notification.requestPermission();
+      if(p==='granted'){ await notifyExpiring(true); }
+    }catch(e){}
+    updateExpiryBanner();
+  };
+}
+async function notifyExpiring(force){
+  if(!('Notification' in window) || Notification.permission!=='granted') return;
+  const {expired, soon} = expirySummary();
+  if(expired===0 && soon===0) return;
+  // at most once per day unless forced from the button
+  const today=new Date().toISOString().slice(0,10);
+  if(!force){
+    let last=null; try{ last=localStorage.getItem('ewcards:notify'); }catch(e){}
+    if(last===today) return;
+  }
+  try{ localStorage.setItem('ewcards:notify', today); }catch(e){}
+  const parts=[];
+  if(expired) parts.push(`期限切れ${expired}件`);
+  if(soon) parts.push(`まもなく${soon}件`);
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    reg.showNotification('EarthWISE Cards', {
+      body: parts.join('・')+'のクーポンがあります。',
+      icon:'/icon-192.png', badge:'/icon-192.png', tag:'ewcards-expiry'
+    });
+  }catch(e){}
+}
 
 /* ---------- swatches ---------- */
 const swatchWrap = document.getElementById('swatches');
@@ -1128,6 +1228,7 @@ function seedItems(){
   }
   await writeFlag(KEY+":init");
   render();
+  notifyExpiring(false);
 })();
 </script>
 <script>
